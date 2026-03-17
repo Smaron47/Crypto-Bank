@@ -6,7 +6,7 @@
 
 **QuantumBank Pro** is a cutting-edge, single-page application (SPA) template designed for next-generation fintech platforms, digital banks, and cryptocurrency exchanges. Built purely with HTML, Vanilla JS, and Tailwind CSS, it boasts a stunning dark-mode-first, glassmorphism interface.
 
-[👉 **View Live Demo Here**](https://smaron47.github.io/quantumbank-pro-fintech-crypto-dashboard/) 
+[👉 **View Live Demo Here**](crypto-bank-production-8f1f.up.railway.app) 
 
 ## ✨ Key Features
 
