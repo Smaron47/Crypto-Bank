@@ -1,0 +1,2157 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuantumBank Pro - Next-Gen Fintech & Crypto Platform</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        // Custom Brand Color Palette (Deep Blue/Purple)
+                        brand: {
+                            50: '#f5f3ff', 100: '#ede9fe', 200: '#ddd6fe', 300: '#c4b5fd', 
+                            400: '#a78bfa', 500: '#8b5cf6', 600: '#7c3aed', 700: '#6d28d9', 
+                            800: '#5b21b6', 900: '#4c1d95', 950: '#2c0f5b',
+                        },
+                        // Dark mode background colors
+                        'dark-bg': '#0c0a1a', 
+                        'dark-card': '#141128', 
+                        'dark-border': '#272242',
+                    },
+                },
+            },
+        }
+    </script>
+    <style>
+        /* General Styles */
+        body {
+            background-color: #0c0a1a; /* dark-bg */
+            color: #f3f4f6; /* Light gray text */
+            transition: background-color 0.3s;
+        }
+
+        /* Glassmorphism Effect for Cards/Inputs */
+        .glass-card {
+            background-color: rgba(20, 17, 40, 0.7); /* dark-card with transparency */
+            border: 1px solid rgba(139, 92, 246, 0.2); /* brand-500 light border */
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2), 0 10px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .glass-input {
+            background-color: rgba(25, 25, 50, 0.8);
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            color: #e0e7ff;
+        }
+        .glass-input:focus {
+            border-color: #a78bfa; /* brand-400 */
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.5);
+        }
+        
+        /* Custom Scrollbar for better dark mode aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e1b3a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #6d28d9;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #8b5cf6;
+        }
+
+        /* Chart Tooltip Styling */
+        .chartjs-tooltip {
+            background: #141128;
+            border: 1px solid #6d28d9;
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+
+<body class="font-sans min-h-screen antialiased overflow-x-hidden">
+
+    <div id="loading-overlay" class="fixed inset-0 bg-dark-bg/90 backdrop-blur-sm flex items-center justify-center z-[100] transition-opacity duration-300 hidden">
+        <div class="flex flex-col items-center">
+            <i class="ph-spinner-gap ph-2xl animate-spin text-brand-500"></i>
+            <p class="mt-4 text-brand-300 text-lg font-medium">Processing your request...</p>
+        </div>
+    </div>
+
+    <div id="toast-container" class="fixed top-5 right-5 z-50 space-y-3">
+        </div>
+
+    <div id="app-container" class="min-h-screen flex">
+        </div>
+
+    <div id="auth-modal" class="fixed inset-0 bg-dark-bg/90 backdrop-blur-xl flex items-center justify-center z-50 hidden">
+        </div>
+    
+    <div id="generic-modal" class="hidden fixed inset-0 bg-dark-bg/80 backdrop-blur-sm z-40 items-center justify-center">
+        <div id="modal-content" class="w-full max-w-lg glass-card rounded-2xl p-6 transform transition-all duration-300 scale-95 opacity-0">
+            </div>
+    </div>
+
+    <script>
+        // --- Configuration & State Management ---
+        const BASE_API_URL = 'http://localhost:8080/api'; // Standard API base URL
+        const Store = {
+            isAuthenticated: false,
+            isAdmin: false,
+            user: {},
+            accounts: { fiat: 0, crypto: {} },
+            marketData: [], // Stores live crypto market data
+            transactions: [],
+            config: {}, // Admin config
+            activeView: '',
+            authToken: localStorage.getItem('authToken'), // Initial check for token
+        };
+
+        const Views = {
+            'dashboard': { icon: 'ph-house-fill', name: 'Dashboard' },
+            'banking': { icon: 'ph-bank-fill', name: 'Banking' },
+            'crypto': { icon: 'ph-currency-btc-fill', name: 'Crypto Exchange' },
+            'wallet': { icon: 'ph-wallet-fill', name: 'Wallet' },
+            'cards': { icon: 'ph-credit-card-fill', name: 'Cards' },
+            'settings': { icon: 'ph-gear-six-fill', name: 'Settings' },
+            'loans': { icon: 'ph-coins-fill', name: 'Loans' },
+            'admin': { icon: 'ph-crown-fill', name: 'Admin Panel', adminOnly: true },
+        };
+
+        // --- Utility Functions ---
+
+        /** Shows a toast notification */
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const colorMap = {
+                success: 'bg-green-600',
+                error: 'bg-red-600',
+                info: 'bg-brand-500'
+            };
+            const iconMap = {
+                success: 'ph-check-circle-fill',
+                error: 'ph-x-circle-fill',
+                info: 'ph-info-fill'
+            };
+
+            const toast = document.createElement('div');
+            toast.className = `p-4 rounded-xl shadow-lg text-white ${colorMap[type]} flex items-center space-x-3 transition-all duration-300 transform translate-x-full opacity-0`;
+            toast.innerHTML = `<i class="${iconMap[type]} text-xl"></i><span>${message}</span>`;
+            
+            container.appendChild(toast);
+
+            // Animate in
+            setTimeout(() => {
+                toast.classList.remove('translate-x-full', 'opacity-0');
+                toast.classList.add('translate-x-0', 'opacity-100');
+            }, 10);
+
+            // Animate out and remove
+            setTimeout(() => {
+                toast.classList.remove('translate-x-0', 'opacity-100');
+                toast.classList.add('translate-x-full', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 5000);
+        }
+
+        /** Formats a number to currency */
+        function formatCurrency(amount, currency = 'USD') {
+            return new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: currency,
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            }).format(amount);
+        }
+
+        /** Formats a number to crypto display */
+        function formatCrypto(amount, symbol) {
+            return `${new Intl.NumberFormat('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 8 }).format(amount)} ${symbol}`;
+        }
+
+        /** Shows/Hides the generic modal */
+        function toggleModal(isVisible, contentHTML = '', title = 'Action Required') {
+            const modal = document.getElementById('generic-modal');
+            const modalContent = document.getElementById('modal-content');
+            
+            if (isVisible) {
+                modalContent.innerHTML = `
+                    <div class="pb-4 border-b border-dark-border mb-4 flex justify-between items-center">
+                        <h3 class="text-2xl font-bold text-white">${title}</h3>
+                        <button onclick="toggleModal(false)" class="text-brand-300 hover:text-brand-500"><i class="ph-x text-2xl"></i></button>
+                    </div>
+                    ${contentHTML}
+                `;
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                setTimeout(() => {
+                    modalContent.classList.remove('scale-95', 'opacity-0');
+                    modalContent.classList.add('scale-100', 'opacity-100');
+                }, 10);
+            } else {
+                modalContent.classList.remove('scale-100', 'opacity-100');
+                modalContent.classList.add('scale-95', 'opacity-0');
+                setTimeout(() => {
+                    modal.classList.add('hidden');
+                    modal.classList.remove('flex');
+                    modalContent.innerHTML = '';
+                }, 300);
+            }
+        }
+
+        /** Shows/Hides the loading overlay */
+        function toggleLoading(isVisible) {
+            document.getElementById('loading-overlay').classList.toggle('hidden', !isVisible);
+        }
+
+        // --- API Interaction Layer ---
+
+        /** Generic API fetch wrapper */
+        async function apiCall(endpoint, options = {}) {
+            toggleLoading(true);
+            const headers = {
+                'Content-Type': 'application/json',
+                ...(Store.authToken && { 'Authorization': `Bearer ${Store.authToken}` })
+            };
+
+            try {
+                const response = await fetch(`${BASE_API_URL}${endpoint}`, {
+                    ...options,
+                    headers: { ...headers, ...options.headers }
+                });
+
+                toggleLoading(false);
+
+                if (response.status === 401) {
+                    // Unauthorized/Token expired
+                    handleLogout();
+                    showToast("Session expired. Please log in again.", 'error');
+                    return null;
+                }
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ message: `Server error: ${response.statusText}` }));
+                    throw new Error(errorData.message || `API Error: ${response.status}`);
+                }
+
+                return await response.json();
+
+            } catch (error) {
+                toggleLoading(false);
+                showToast(error.message || "An unknown network error occurred.", 'error');
+                console.error("API Call Error:", error);
+                return null;
+            }
+        }
+
+        /** Initial Data Fetch: User, Accounts, Market */
+        async function fetchInitialData() {
+            if (!Store.isAuthenticated) return;
+
+            const [profile, transactions, market] = await Promise.all([
+                apiCall('/user/profile'), // New endpoint: GET /api/user/profile
+                apiCall('/transactions'), // Existing endpoint: GET /api/transactions
+                apiCall('/crypto/market'), // Existing endpoint: GET /api/crypto/market
+            ]);
+
+            if (profile) {
+                Store.user = profile.user || {};
+                Store.accounts = profile.accounts || { fiat: 0, crypto: {} };
+                Store.isAdmin = Store.user.role === 'admin';
+                Store.user.loans = profile.loans || null; // User loan info
+                Store.user.cards = profile.cards || []; // User card info
+                
+                
+            }
+            if (transactions) {
+                Store.transactions = transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+            }
+            if (market) {
+                Store.marketData = market;
+            }
+            
+            // Re-render the app with fresh data
+            renderApp();
+        }
+
+        // --- Authentication Logic ---
+
+        function handleLogin() {
+            const email = document.getElementById('login-email').value;
+            const password = document.getElementById('login-password').value;
+            if (!email || !password) return showToast("Please enter email and password.", 'info');
+
+            apiCall('/auth/login', {
+                method: 'POST',
+                body: JSON.stringify({ email, password })
+            }).then(data => {
+                if (data && data.token) {
+                    Store.authToken = data.token;
+                    localStorage.setItem('authToken', data.token);
+                    Store.isAuthenticated = true;
+                    // Initial data fetch and UI setup
+                    fetchInitialData();
+                    document.getElementById('auth-modal').classList.add('hidden');
+                    showToast("Login Successful! Welcome back.", 'success');
+                    window.location.hash = '#dashboard';
+                }
+            });
+        }
+
+        function handleRegister() {
+            const name = document.getElementById('register-name').value;
+            const email = document.getElementById('register-email').value;
+            const password = document.getElementById('register-password').value;
+            if (!name || !email || !password) return showToast("Please fill all fields.", 'info');
+
+            apiCall('/auth/register', {
+                method: 'POST',
+                body: JSON.stringify({ name, email, password })
+            }).then(data => {
+                if (data && data.token) {
+                    // Registration typically logs you in immediately
+                    Store.authToken = data.token;
+                    localStorage.setItem('authToken', data.token);
+                    Store.isAuthenticated = true;
+                    fetchInitialData();
+                    document.getElementById('auth-modal').classList.add('hidden');
+                    showToast("Registration Successful! Welcome to QuantumBank.", 'success');
+                    window.location.hash = '#dashboard';
+                }
+            });
+        }
+
+        function handleLogout() {
+            // We assume a simple token removal is enough, although a backend call to invalidate is better
+            Store.authToken = null;
+            Store.isAuthenticated = false;
+            localStorage.removeItem('authToken');
+            Store.user = {};
+            Store.accounts = { fiat: 0, crypto: {} };
+            showToast("You have been logged out.", 'info');
+            renderApp();
+        }
+
+        // --- Rendering Functions: Views ---
+
+        function renderAuthPage(isLogin = true) {
+            const modal = document.getElementById('auth-modal');
+            const authContent = isLogin 
+                ? `
+                <div class="glass-card p-8 md:p-12 w-full max-w-md rounded-3xl shadow-2xl">
+                    <h2 class="text-4xl font-extrabold text-white mb-2 text-center">Welcome Back</h2>
+                    <p class="text-brand-300 mb-8 text-center">Sign in to access your digital assets.</p>
+
+                    <form onsubmit="event.preventDefault(); handleLogin();" class="space-y-5">
+                        <input id="login-email" type="email" placeholder="Email Address" required class="w-full glass-input rounded-xl px-5 py-3 text-sm transition focus:ring-2 focus:ring-brand-500">
+                        <input id="login-password" type="password" placeholder="Password" required class="w-full glass-input rounded-xl px-5 py-3 text-sm transition focus:ring-2 focus:ring-brand-500">
+                        
+                        <div class="flex justify-between items-center text-sm">
+                            <label class="flex items-center text-brand-200 cursor-pointer">
+                                <input type="checkbox" class="h-4 w-4 text-brand-600 bg-transparent border-brand-500 rounded focus:ring-brand-500">
+                                <span class="ml-2">Remember Me</span>
+                            </label>
+                            <a href="#" class="text-brand-400 hover:text-brand-300 font-medium">Forgot Password?</a>
+                        </div>
+                        
+                        <button type="submit" class="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-lg transition duration-300 shadow-lg shadow-brand-500/30">
+                            Login
+                        </button>
+                    </form>
+                    <p class="mt-8 text-center text-sm text-brand-200">
+                        Don't have an account? 
+                        <a href="#" onclick="renderAuthPage(false)" class="text-brand-400 font-bold hover:text-brand-300">Register Now</a>
+                    </p>
+                </div>
+                `
+                : `
+                <div class="glass-card p-8 md:p-12 w-full max-w-md rounded-3xl shadow-2xl">
+                    <h2 class="text-4xl font-extrabold text-white mb-2 text-center">Join QuantumBank</h2>
+                    <p class="text-brand-300 mb-8 text-center">Create your account in seconds.</p>
+
+                    <form onsubmit="event.preventDefault(); handleRegister();" class="space-y-5">
+                        <input id="register-name" type="text" placeholder="Full Name" required class="w-full glass-input rounded-xl px-5 py-3 text-sm transition focus:ring-2 focus:ring-brand-500">
+                        <input id="register-email" type="email" placeholder="Email Address" required class="w-full glass-input rounded-xl px-5 py-3 text-sm transition focus:ring-2 focus:ring-brand-500">
+                        <input id="register-password" type="password" placeholder="Password (min 8 chars)" required class="w-full glass-input rounded-xl px-5 py-3 text-sm transition focus:ring-2 focus:ring-brand-500">
+                        
+                        <button type="submit" class="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl text-lg transition duration-300 shadow-lg shadow-green-500/30">
+                            Register Account
+                        </button>
+                    </form>
+                    <p class="mt-8 text-center text-sm text-brand-200">
+                        Already have an account? 
+                        <a href="#" onclick="renderAuthPage(true)" class="text-brand-400 font-bold hover:text-brand-300">Sign In</a>
+                    </p>
+                </div>
+                `;
+            
+            modal.innerHTML = authContent;
+            modal.classList.remove('hidden');
+        }
+
+        // --- View Rendering Logic ---
+
+        function renderSidebar() {
+            let navItems = '';
+            for (const key in Views) {
+                const view = Views[key];
+                // Skip if not admin and view is admin-only
+                if (view.adminOnly && !Store.isAdmin) continue;
+
+                const isActive = Store.activeView === key;
+                navItems += `
+                    <a href="#${key}" 
+                       class="flex items-center space-x-3 p-3 rounded-xl transition duration-200 ${isActive ? 'bg-brand-600 text-white shadow-lg shadow-brand-500/50' : 'text-brand-300 hover:bg-dark-card hover:text-brand-100'}">
+                        <i class="${view.icon} text-xl"></i>
+                        <span class="font-medium">${view.name}</span>
+                    </a>
+                `;
+            }
+
+            return `
+                <aside class="w-64 bg-dark-card p-5 sticky top-0 h-screen border-r border-dark-border flex flex-col z-20">
+                    <div class="flex items-center space-x-2 pb-6 mb-6 border-b border-dark-border">
+                        <i class="ph-bank ph-2xl text-brand-500"></i>
+                        <span class="text-2xl font-extrabold text-white">Quantum<span class="text-brand-400">Bank</span></span>
+                    </div>
+
+                    <nav class="flex-grow space-y-2">
+                        ${navItems}
+                    </nav>
+
+                    <div class="pt-6 mt-6 border-t border-dark-border">
+                        <div class="flex items-center space-x-3 mb-4 p-3 rounded-xl glass-card">
+                            <div class="w-10 h-10 bg-brand-700 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                                ${Store.user.name ? Store.user.name[0] : 'U'}
+                            </div>
+                            <div>
+                                <p class="text-sm font-semibold text-white truncate max-w-[120px]">${Store.user.name || 'User'}</p>
+                                <p class="text-xs text-brand-300">${Store.user.role || 'Client'}</p>
+                            </div>
+                        </div>
+                        <button onclick="handleLogout()" class="w-full flex items-center justify-center space-x-2 py-2 bg-red-700 hover:bg-red-600 text-white font-medium rounded-xl transition duration-200">
+                            <i class="ph-sign-out text-lg"></i>
+                            <span>Logout</span>
+                        </button>
+                    </div>
+                </aside>
+            `;
+        }
+
+        function renderHeader() {
+            const viewTitle = Views[Store.activeView] ? Views[Store.activeView].name : 'Dashboard';
+            return `
+                <header class="sticky top-0 bg-dark-bg/90 backdrop-blur-md p-5 border-b border-dark-border z-10">
+                    <div class="flex justify-between items-center">
+                        <h1 class="text-3xl font-bold text-white">${viewTitle}</h1>
+                        <div class="flex items-center space-x-4">
+                            <button class="p-3 glass-card rounded-full hover:bg-dark-card/50 text-brand-400 transition"><i class="ph-bell text-xl"></i></button>
+                            <button class="p-3 glass-card rounded-full hover:bg-dark-card/50 text-brand-400 transition"><i class="ph-question-fill text-xl"></i></button>
+                            <div class="w-10 h-10 bg-brand-600 rounded-full"></div> </div>
+                    </div>
+                </header>
+            `;
+        }
+
+        function renderDashboard() {
+            const fiatBalance = Store.accounts.fiat || 0;
+            const cryptoPortfolioValue = Object.keys(Store.accounts.crypto).reduce((sum, symbol) => {
+                const marketItem = Store.marketData.find(m => m.symbol === symbol);
+                const price = marketItem ? marketItem.price : 0;
+                return sum + (Store.accounts.crypto[symbol] * price);
+            }, 0);
+            const totalAssets = fiatBalance + cryptoPortfolioValue;
+
+            const recentTransactions = Store.transactions.slice(0, 5).map(t => `
+                <div class="flex justify-between items-center py-3 border-b border-dark-border last:border-b-0">
+                    <div class="flex items-center space-x-3">
+                        <i class="ph-arrow-${t.type === 'DEPOSIT' || t.type === 'BUY' ? 'up-right' : 'down-left'} text-2xl ${t.type === 'DEPOSIT' || t.type === 'BUY' ? 'text-green-400' : 'text-red-400'}"></i>
+                        <div>
+                            <p class="text-white font-medium">${t.description || t.type}</p>
+                            <p class="text-xs text-brand-300">${moment(t.date).fromNow()}</p>
+                        </div>
+                    </div>
+                    <span class="font-mono text-white ${t.type === 'DEPOSIT' || t.type === 'BUY' ? 'text-green-400' : 'text-red-400'}">${formatCurrency(t.amount, t.currency)}</span>
+                </div>
+            `).join('');
+
+            return `
+                <div class="space-y-6 p-6">
+                    <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                        <div class="lg:col-span-2 glass-card p-6 rounded-2xl flex flex-col justify-between">
+                            <i class="ph-wallet text-3xl text-brand-500 mb-2"></i>
+                            <p class="text-brand-300 font-semibold uppercase text-sm">Total Portfolio Value</p>
+                            <h2 class="text-5xl font-extrabold text-white mt-1">${formatCurrency(totalAssets)}</h2>
+                            <div class="flex items-center space-x-2 mt-3">
+                                <span class="text-green-400 font-medium flex items-center"><i class="ph-arrow-up text-lg"></i> +4.5%</span>
+                                <span class="text-sm text-brand-300">vs last month</span>
+                            </div>
+                        </div>
+
+                        <div class="glass-card p-6 rounded-2xl">
+                            <i class="ph-bank text-3xl text-green-500 mb-2"></i>
+                            <p class="text-brand-300 font-semibold uppercase text-sm">Fiat Balance (USD)</p>
+                            <h3 class="text-3xl font-bold text-white mt-1 font-mono">${formatCurrency(fiatBalance)}</h3>
+                            <button onclick="window.location.hash='#banking'" class="mt-4 text-brand-400 hover:text-brand-300 text-sm font-medium flex items-center">
+                                Deposit/Withdraw <i class="ph-arrow-right ml-1"></i>
+                            </button>
+                        </div>
+
+                        <div class="glass-card p-6 rounded-2xl">
+                            <i class="ph-currency-btc text-3xl text-yellow-500 mb-2"></i>
+                            <p class="text-brand-300 font-semibold uppercase text-sm">Crypto Portfolio Value</p>
+                            <h3 class="text-3xl font-bold text-white mt-1 font-mono">${formatCurrency(cryptoPortfolioValue)}</h3>
+                            <button onclick="window.location.hash='#crypto'" class="mt-4 text-brand-400 hover:text-brand-300 text-sm font-medium flex items-center">
+                                Trade Now <i class="ph-arrow-right ml-1"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        
+                        <div class="lg:col-span-2 glass-card p-6 rounded-2xl">
+                            <h3 class="text-xl font-bold text-white mb-4">7-Day Portfolio Performance</h3>
+                            <div style="height: 300px;">
+                                <canvas id="portfolioChart"></canvas>
+                            </div>
+                        </div>
+
+                        <div class="glass-card p-6 rounded-2xl h-full flex flex-col">
+                            <h3 class="text-xl font-bold text-white mb-4">Recent Activity</h3>
+                            <div class="flex-grow space-y-1 overflow-y-auto">
+                                ${recentTransactions.length > 0 ? recentTransactions : '<p class="text-brand-300 text-sm italic">No recent transactions.</p>'}
+                            </div>
+                            <button onclick="window.location.hash='#transactions'" class="mt-4 w-full py-2 text-brand-400 hover:bg-dark-border rounded-lg transition">View All</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- Render: Banking (Fiat Transfers) ---
+        function renderBanking() {
+            return `
+                <div class="space-y-6 p-6">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="lg:col-span-1 glass-card p-6 rounded-2xl">
+                            <h3 class="text-xl font-bold text-white mb-4">Your Fiat Account</h3>
+                            <p class="text-brand-300 uppercase text-sm">Available Balance</p>
+                            <p class="text-4xl font-mono font-bold text-green-400 mt-1">${formatCurrency(Store.accounts.fiat)}</p>
+                            <p class="text-sm text-brand-300 mt-4">Account Number: **${Store.user.account_number || 'N/A'}**</p>
+                            <p class="text-sm text-brand-300">Routing Number: 987654321</p>
+                        </div>
+
+                        <div class="lg:col-span-2 glass-card p-6 rounded-2xl">
+                            <h3 class="text-xl font-bold text-white mb-4 border-b border-dark-border pb-3">Send Money (P2P/Bank Transfer)</h3>
+                            <form onsubmit="event.preventDefault(); handleFiatTransfer();" class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-brand-200 mb-1">Recipient Account/Email</label>
+                                    <input id="transfer-recipient" type="text" placeholder="QuantumBank Email or Account Number" required class="w-full glass-input rounded-xl px-4 py-3 text-sm font-mono">
+                                </div>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-brand-200 mb-1">Amount (USD)</label>
+                                        <input id="transfer-amount" type="number" step="0.01" min="1" required class="w-full glass-input rounded-xl px-4 py-3 text-sm font-mono" placeholder="100.00">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-brand-200 mb-1">Memo/Description</label>
+                                        <input id="transfer-memo" type="text" class="w-full glass-input rounded-xl px-4 py-3 text-sm" placeholder="For lunch">
+                                    </div>
+                                </div>
+                                <button type="submit" class="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl transition duration-300">
+                                    Confirm Transfer
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="glass-card p-6 rounded-2xl">
+                            <h3 class="text-xl font-bold text-white mb-4 flex items-center"><i class="ph-arrow-square-down text-brand-400 mr-2"></i> Deposit Fiat</h3>
+                            <p class="text-brand-300 text-sm mb-4">Connect your external bank account to fund your QuantumBank USD balance.</p>
+                            <form onsubmit="event.preventDefault(); showToast('Deposit flow initiated! (Mock)', 'info');" class="space-y-4">
+                                <input type="number" placeholder="Amount to Deposit (USD)" required class="w-full glass-input rounded-xl px-4 py-3 text-sm font-mono">
+                                <button type="submit" class="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl">Simulate Deposit</button>
+                            </form>
+                        </div>
+                        
+                        <div class="glass-card p-6 rounded-2xl">
+                            <h3 class="text-xl font-bold text-white mb-4 flex items-center"><i class="ph-arrow-square-up text-red-400 mr-2"></i> Withdraw Fiat</h3>
+                            <p class="text-brand-300 text-sm mb-4">Send funds from your account to an external bank.</p>
+                            <form onsubmit="event.preventDefault(); showToast('Withdrawal request submitted! (Mock)', 'info');" class="space-y-4">
+                                <input type="number" placeholder="Amount to Withdraw (USD)" required class="w-full glass-input rounded-xl px-4 py-3 text-sm font-mono">
+                                <button type="submit" class="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl">Simulate Withdraw</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Function to handle the actual Fiat Transfer
+        function handleFiatTransfer() {
+            const recipient = document.getElementById('transfer-recipient').value;
+            const amount = parseFloat(document.getElementById('transfer-amount').value);
+            const memo = document.getElementById('transfer-memo').value;
+
+            if (isNaN(amount) || amount <= 0) {
+                return showToast("Invalid amount.", 'error');
+            }
+            if (amount > Store.accounts.fiat) {
+                return showToast("Insufficient fiat balance.", 'error');
+            }
+
+            // Endpoint: POST /api/transactions
+            apiCall('/transactions', {
+                method: 'POST',
+                body: JSON.stringify({ 
+                    type: 'TRANSFER', 
+                    amount, 
+                    currency: 'USD', 
+                    recipient, 
+                    description: memo 
+                })
+            }).then(data => {
+                if (data) {
+                    showToast("Transfer successful!", 'success');
+                    // Refresh data
+                    fetchInitialData(); 
+                    document.getElementById('transfer-recipient').value = '';
+                    document.getElementById('transfer-amount').value = '';
+                    document.getElementById('transfer-memo').value = '';
+                }
+            });
+        }
+
+        // --- Render: Crypto Exchange ---
+        function renderCrypto() {
+            const tradingPairs = Store.marketData.map(item => {
+                const changeClass = item.change_24h >= 0 ? 'text-green-400' : 'text-red-400';
+                const icon = item.change_24h >= 0 ? 'ph-caret-up-fill' : 'ph-caret-down-fill';
+                
+                return `
+                    <tr class="hover:bg-dark-border cursor-pointer transition" onclick="selectCryptoPair('${item.symbol}')">
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-white flex items-center">
+                            <i class="ph-currency-${item.symbol.toLowerCase() === 'btc' ? 'btc' : item.symbol.toLowerCase() === 'eth' ? 'eth' : 'circle'} text-2xl mr-3 text-yellow-400"></i>
+                            ${item.symbol}/USD
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-white">${formatCurrency(item.price)}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-mono ${changeClass} flex items-center">
+                            <i class="${icon} mr-1"></i> ${item.change_24h.toFixed(2)}%
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-brand-300">${formatCurrency(item.volume_24h)}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-brand-500">
+                            <button onclick="event.stopPropagation(); window.location.hash='#crypto?pair=${item.symbol}'" class="text-xs px-3 py-1 bg-brand-700/50 hover:bg-brand-700 rounded-full">Trade</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            return `
+                <div class="space-y-6 p-6">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="lg:col-span-1 glass-card p-6 rounded-2xl h-full">
+                            <h3 class="text-2xl font-bold text-white mb-4 border-b border-dark-border pb-3">Place Order</h3>
+                            <div class="flex space-x-2 mb-4">
+                                <button id="trade-btn-buy" class="flex-1 py-2 bg-green-700/50 hover:bg-green-700 text-white rounded-lg font-bold transition">BUY</button>
+                                <button id="trade-btn-sell" class="flex-1 py-2 bg-red-700/50 hover:bg-red-700 text-white rounded-lg font-bold transition">SELL</button>
+                            </div>
+                            
+                            <form id="crypto-trade-form" onsubmit="event.preventDefault(); handleCryptoTrade();" class="space-y-4">
+                                <input type="hidden" id="trade-type" value="BUY">
+                                <input type="hidden" id="trade-symbol" value="BTC">
+
+                                <div class="space-y-1">
+                                    <label class="block text-sm font-medium text-brand-200">Pair</label>
+                                    <select id="trade-pair" class="w-full glass-input rounded-xl px-4 py-3 text-sm font-mono">
+                                        ${Store.marketData.map(m => `<option value="${m.symbol}">${m.symbol}/USD</option>`).join('')}
+                                    </select>
+                                </div>
+
+                                <div class="space-y-1">
+                                    <label class="block text-sm font-medium text-brand-200">Price (USD)</label>
+                                    <input id="trade-price" type="text" readonly class="w-full glass-input rounded-xl px-4 py-3 text-sm font-mono text-brand-400" value="${formatCurrency(Store.marketData[0]?.price || 0)}">
+                                </div>
+                                
+                                <div class="space-y-1">
+                                    <label class="block text-sm font-medium text-brand-200">Amount (${Store.marketData[0]?.symbol || 'BTC'})</label>
+                                    <input id="trade-amount" type="number" step="0.000001" min="0.000001" required class="w-full glass-input rounded-xl px-4 py-3 text-sm font-mono" placeholder="0.001">
+                                    <p id="trade-max-balance" class="text-xs text-brand-300 text-right mt-1">Available: ${formatCrypto(Store.accounts.fiat / (Store.marketData[0]?.price || 1), 'USD')}</p>
+                                </div>
+
+                                <div class="space-y-1 pt-4 border-t border-dark-border">
+                                    <p class="text-sm text-brand-300 flex justify-between">Total Est. Cost: <span id="trade-total-cost" class="font-mono text-white">0.00 USD</span></p>
+                                    <p class="text-xs text-brand-300 flex justify-between">Fee (0.5%): <span id="trade-fee" class="font-mono text-brand-400">0.00 USD</span></p>
+                                </div>
+
+                                <button type="submit" id="trade-submit-btn" class="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl text-lg transition duration-300">
+                                    BUY BTC
+                                </button>
+                            </form>
+                        </div>
+                        
+                        <div class="lg:col-span-2 glass-card p-6 rounded-2xl overflow-x-auto">
+                            <h3 class="text-xl font-bold text-white mb-4">Live Market Data (Top Assets)</h3>
+                            <table class="min-w-full divide-y divide-dark-border">
+                                <thead class="text-xs text-brand-400 uppercase tracking-wider">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left">Asset</th>
+                                        <th class="px-6 py-3 text-left">Price</th>
+                                        <th class="px-6 py-3 text-left">24h Change</th>
+                                        <th class="px-6 py-3 text-left">24h Volume</th>
+                                        <th class="px-6 py-3 text-left">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-dark-border">
+                                    ${tradingPairs}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Function to handle crypto trading
+        function handleCryptoTrade() {
+            const type = document.getElementById('trade-type').value; // BUY or SELL
+            const symbol = document.getElementById('trade-pair').value;
+            const amount = parseFloat(document.getElementById('trade-amount').value);
+            const price = Store.marketData.find(m => m.symbol === symbol)?.price;
+            
+            if (isNaN(amount) || amount <= 0 || !price) {
+                return showToast("Invalid trade amount or symbol.", 'error');
+            }
+
+            const totalCost = amount * price * 1.005; // Amount * Price * (1 + Fee)
+
+            if (type === 'BUY' && totalCost > Store.accounts.fiat) {
+                return showToast("Insufficient fiat balance for this purchase.", 'error');
+            }
+            if (type === 'SELL' && amount > (Store.accounts.crypto[symbol] || 0)) {
+                return showToast(`Insufficient ${symbol} balance for this sale.`, 'error');
+            }
+
+            // Endpoint: POST /api/crypto/trade
+            apiCall('/crypto/trade', {
+                method: 'POST',
+                body: JSON.stringify({ 
+                    action: type.toLowerCase(), 
+                    symbol, 
+                    amount, 
+                    price // Note: Backend should validate this is close to market price
+                })
+            }).then(data => {
+                if (data) {
+                    showToast(`${type} of ${formatCrypto(amount, symbol)} successful!`, 'success');
+                    // Refresh data
+                    fetchInitialData(); 
+                    document.getElementById('trade-amount').value = '';
+                }
+            });
+        }
+
+        // --- Render: Crypto Wallet ---
+        function renderWallet() {
+            const cryptoBalances = Object.keys(Store.accounts.crypto).map(symbol => {
+                const amount = Store.accounts.crypto[symbol];
+                const marketItem = Store.marketData.find(m => m.symbol === symbol);
+                const price = marketItem ? marketItem.price : 0;
+                const value = amount * price;
+
+                return `
+                    <div class="glass-card p-5 rounded-xl flex justify-between items-center transition hover:scale-[1.02]">
+                        <div class="flex items-center space-x-4">
+                            <i class="ph-currency-${symbol.toLowerCase() === 'btc' ? 'btc' : symbol.toLowerCase() === 'eth' ? 'eth' : 'circle'} text-4xl text-brand-400"></i>
+                            <div>
+                                <p class="text-lg font-bold text-white">${symbol} Wallet</p>
+                                <p class="text-sm text-brand-300">Current Price: ${formatCurrency(price)}</p>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-xl font-mono font-bold text-white">${formatCrypto(amount, symbol)}</p>
+                            <p class="text-sm text-green-400">${formatCurrency(value)} USD</p>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            return `
+                <div class="space-y-6 p-6">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="lg:col-span-3 glass-card p-6 rounded-2xl">
+                            <h3 class="text-2xl font-bold text-white mb-2">Your Crypto Portfolio</h3>
+                            <p class="text-brand-300 text-sm mb-4">Total value of all crypto holdings: **${formatCurrency(Object.keys(Store.accounts.crypto).reduce((sum, symbol) => {
+                                const marketItem = Store.marketData.find(m => m.symbol === symbol);
+                                return sum + (Store.accounts.crypto[symbol] * (marketItem ? marketItem.price : 0));
+                            }, 0))}**</p>
+                            <div class="h-3 bg-dark-border rounded-full overflow-hidden">
+                                <div class="h-full bg-yellow-500 w-[50%] float-left"></div>
+                                <div class="h-full bg-blue-500 w-[30%] float-left"></div>
+                                <div class="h-full bg-red-500 w-[20%] float-left"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        ${cryptoBalances.length > 0 ? cryptoBalances : '<div class="lg:col-span-3 text-center py-10 text-brand-300 italic">You currently hold no crypto assets. Go to the Crypto Exchange to buy!</div>'}
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-4 border-t border-dark-border">
+                        <div class="glass-card p-6 rounded-2xl">
+                            <h3 class="text-xl font-bold text-white mb-4 flex items-center"><i class="ph-arrow-square-down text-yellow-400 mr-2"></i> Deposit Crypto</h3>
+                            <p class="text-brand-300 text-sm mb-4">Receive crypto from an external wallet.</p>
+                            <form onsubmit="event.preventDefault(); showCryptoAddressModal('deposit');" class="space-y-4">
+                                <label class="block text-sm font-medium text-brand-200">Select Asset</label>
+                                <select id="deposit-asset" class="w-full glass-input rounded-xl px-4 py-3 text-sm font-mono">
+                                    ${Store.marketData.map(m => `<option value="${m.symbol}">${m.symbol}</option>`).join('')}
+                                </select>
+                                <button type="submit" class="w-full py-3 bg-yellow-600 hover:bg-yellow-700 text-white font-bold rounded-xl">Generate Deposit Address</button>
+                            </form>
+                        </div>
+                        
+                        <div class="glass-card p-6 rounded-2xl">
+                            <h3 class="text-xl font-bold text-white mb-4 flex items-center"><i class="ph-arrow-square-up text-red-400 mr-2"></i> Withdraw Crypto</h3>
+                            <p class="text-brand-300 text-sm mb-4">Send crypto to an external wallet (transaction fee applies).</p>
+                            <form onsubmit="event.preventDefault(); handleCryptoWithdraw();" class="space-y-4">
+                                <label class="block text-sm font-medium text-brand-200">Select Asset</label>
+                                <select id="withdraw-asset" class="w-full glass-input rounded-xl px-4 py-3 text-sm font-mono">
+                                    ${Object.keys(Store.accounts.crypto).map(symbol => `<option value="${symbol}">${symbol}</option>`).join('')}
+                                </select>
+                                <input id="withdraw-address" type="text" placeholder="Recipient Wallet Address" required class="w-full glass-input rounded-xl px-4 py-3 text-sm">
+                                <input id="withdraw-amount" type="number" step="0.000001" min="0.000001" required placeholder="Amount" class="w-full glass-input rounded-xl px-4 py-3 text-sm font-mono">
+                                <button type="submit" class="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl">Confirm Withdrawal</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+function renderLoans() {
+    const activeLoans = Store.user.loans || [];
+
+    return `
+        <div class="space-y-6 p-6">
+            <h2 class="text-3xl font-bold text-white mb-6">Lending & Credit</h2>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-1 glass-card p-6 rounded-2xl">
+                    <h3 class="text-xl font-bold text-white mb-4">Request New Loan</h3>
+                    <p class="text-sm text-brand-300 mb-6">Quickly apply for a loan. Pending requests require admin approval.</p>
+                    
+                    <form onsubmit="event.preventDefault(); handleLoanRequest();" class="space-y-5">
+                        <div class="space-y-1">
+                            <label class="block text-sm font-medium text-brand-200">Amount (USD)</label>
+                            <input id="loan-amount" type="number" class="w-full glass-input rounded-xl px-4 py-3 text-sm font-mono" placeholder="5000.00" oninput="calculateLoanPreview()">
+                        </div>
+
+                        <div class="space-y-1">
+                            <label class="block text-sm font-medium text-brand-200">Duration (Months)</label>
+                            <select id="loan-duration" class="w-full glass-input rounded-xl px-4 py-3 text-sm" onchange="calculateLoanPreview()">
+                                <option value="12" selected>12 Months</option>
+                                <option value="24">24 Months</option>
+                                <option value="36">36 Months</option>
+                            </select>
+                        </div>
+                        
+                        <div class="bg-dark-bg p-4 rounded-xl space-y-2 border border-dark-border">
+                             <div class="flex justify-between text-sm">
+                                <span class="text-brand-300">Interest Rate (Est.)</span>
+                                <span id="preview-rate" class="text-white font-mono">4.5% APR</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-brand-300">Monthly Payment</span>
+                                <span id="preview-payment" class="text-brand-400 font-mono font-bold">$0.00</span>
+                            </div>
+                            <div class="flex justify-between text-sm pt-2 border-t border-dark-border">
+                                <span class="text-brand-300">Total Repayment</span>
+                                <span id="preview-total" class="text-white font-mono">$0.00</span>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl transition duration-300 shadow-lg shadow-brand-500/20">
+                            Apply for Loan
+                        </button>
+                    </form>
+                </div>
+
+                <div class="lg:col-span-2 glass-card p-6 rounded-2xl h-full flex flex-col">
+                    <h3 class="text-xl font-bold text-white mb-4">Loan Requests & History</h3>
+                    <div class="flex-grow overflow-y-auto space-y-3">
+                        ${activeLoans.length > 0 ? activeLoans.map(loan => {
+                            let statusClass, statusText;
+                            console.log(loan.status);
+                            if (loan.status === 'Active') {
+                                statusClass = 'bg-green-900/50 text-green-400';
+                                statusText = 'Active (Disbursed)';
+                            } else if (loan.status === 'Pending') {
+                                statusClass = 'bg-yellow-900/50 text-yellow-400';
+                                statusText = 'Pending Review';
+                            } else {
+                                statusClass = 'bg-red-900/50 text-red-400';
+                                statusText = loan.status; // Rejected/Default
+                            }
+
+                            return `
+                                <div class="p-4 rounded-xl bg-dark-bg border border-dark-border flex justify-between items-center">
+                                    <div>
+                                        <p class="font-bold text-white">${loan.reason || 'Personal Loan'}</p>
+                                        <p class="text-xs text-brand-300">Requested: ${loan.amount} | Term: ${loan.duration} months</p>
+                                        <p class="text-xs font-mono text-yellow-400 mt-1">Rate: ${loan.interest_rate}% APR</p>
+                                    </div>
+                                    <div class="text-right">
+                                        <span class="text-xs px-2 py-1 rounded font-bold ${statusClass}">${statusText}</span>
+                                        ${loan.status === 'Active' ? `<p class="font-mono text-xs text-white mt-1">Balance: ${loan.remaining_balance || loan.amount}</p>` : ''}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('') : `
+                            <div class="h-full flex flex-col items-center justify-center text-brand-300 opacity-50">
+                                <i class="ph-file-search text-4xl mb-2"></i>
+                                <p>No loan history found.</p>
+                            </div>
+                        `}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+function calculateLoanPreview() {
+    const amount = parseFloat(document.getElementById('loan-amount').value) || 0;
+    const months = parseInt(document.getElementById('loan-duration').value);
+    const rate = 0.045 / 12; // 4.5% monthly
+    
+    if (amount > 0) {
+        const monthly = (amount * rate) / (1 - Math.pow(1 + rate, -months));
+        const total = monthly * months;
+        document.getElementById('preview-payment').innerText = formatCurrency(monthly);
+        document.getElementById('preview-total').innerText = formatCurrency(total);
+    }
+}
+
+function handleLoanRequest() {
+    const amount = parseFloat(document.getElementById('loan-amount').value);
+    const duration = document.getElementById('loan-duration').value;
+    
+    if(!amount || amount <= 0) return showToast('Invalid loan amount', 'error');
+
+    apiCall('/loans/request', {
+        method: 'POST',
+        body: JSON.stringify({ amount, duration, reason: 'Personal' })
+    }).then(data => {
+        showToast('Loan application submitted for review!', 'success');
+        fetchInitialData(); // Refresh UI
+    });
+}function renderLoans() {
+    const activeLoans = Store.user.loans || []; // Assuming backend sends this
+    const maxLoanAmount = (Store.accounts.fiat * 5) + 1000; // Mock limit logic
+    const interestRate = 4.5; // Base rate
+
+    return `
+        <div class="space-y-6 p-6">
+            <h2 class="text-3xl font-bold text-white mb-6">Lending & Credit</h2>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-1 glass-card p-6 rounded-2xl">
+                    <h3 class="text-xl font-bold text-white mb-4">Request New Loan</h3>
+                    <p class="text-sm text-brand-300 mb-6">Your credit limit is based on your account activity and portfolio value.</p>
+                    
+                    <form onsubmit="event.preventDefault(); handleLoanRequest();" class="space-y-5">
+                        <div class="space-y-1">
+                            <label class="block text-sm font-medium text-brand-200">Amount (USD)</label>
+                            <input id="loan-amount" type="number" max="${maxLoanAmount}" class="w-full glass-input rounded-xl px-4 py-3 text-sm font-mono" placeholder="5000.00" oninput="calculateLoanPreview()">
+                            <p class="text-xs text-brand-300 text-right mt-1">Max Available: ${formatCurrency(maxLoanAmount)}</p>
+                        </div>
+
+                        <div class="space-y-1">
+                            <label class="block text-sm font-medium text-brand-200">Duration (Months)</label>
+                            <select id="loan-duration" class="w-full glass-input rounded-xl px-4 py-3 text-sm" onchange="calculateLoanPreview()">
+                                <option value="6">6 Months</option>
+                                <option value="12" selected>12 Months</option>
+                                <option value="24">24 Months</option>
+                                <option value="36">36 Months</option>
+                            </select>
+                        </div>
+
+                        <div class="bg-dark-bg p-4 rounded-xl space-y-2 border border-dark-border">
+                            <div class="flex justify-between text-sm">
+                                <span class="text-brand-300">Interest Rate</span>
+                                <span class="text-white font-mono">${interestRate}% APR</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-brand-300">Monthly Payment</span>
+                                <span id="preview-payment" class="text-brand-400 font-mono font-bold">$0.00</span>
+                            </div>
+                            <div class="flex justify-between text-sm pt-2 border-t border-dark-border">
+                                <span class="text-brand-300">Total Repayment</span>
+                                <span id="preview-total" class="text-white font-mono">$0.00</span>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl transition duration-300 shadow-lg shadow-brand-500/20">
+                            Apply for Loan
+                        </button>
+                    </form>
+                </div>
+
+                <div class="lg:col-span-2 glass-card p-6 rounded-2xl h-full flex flex-col">
+                    <h3 class="text-xl font-bold text-white mb-4">Active Loans</h3>
+                    <div class="flex-grow overflow-y-auto space-y-3">
+                        ${activeLoans.length > 0 ? activeLoans.map(loan => `
+                            <div class="p-4 rounded-xl bg-dark-bg border border-dark-border flex justify-between items-center">
+                                <div>
+                                    <p class="font-bold text-white">${loan.purpose || 'Personal Loan'}</p>
+                                    <p class="text-xs text-brand-300">Due: ${moment(loan.next_payment_date).format('MMM Do, YYYY')}</p>
+                                </div>
+                                <div class="text-right">
+                                    <p class="font-mono text-white">$${loan.amount}</p>
+                                    <span class="text-xs px-2 py-1 rounded bg-yellow-500/20 text-yellow-500">${loan.status}</span>
+                                </div>
+                            </div>
+                        `).join('') : `
+                            <div class="h-full flex flex-col items-center justify-center text-brand-300 opacity-50">
+                                <i class="ph-file-search text-4xl mb-2"></i>
+                                <p>No active loans found.</p>
+                            </div>
+                        `}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function calculateLoanPreview() {
+    const amount = parseFloat(document.getElementById('loan-amount').value) || 0;
+    const months = parseInt(document.getElementById('loan-duration').value);
+    const rate = 0.045 / 12; // 4.5% monthly
+    
+    if (amount > 0) {
+        const monthly = (amount * rate) / (1 - Math.pow(1 + rate, -months));
+        const total = monthly * months;
+        document.getElementById('preview-payment').innerText = formatCurrency(monthly);
+        document.getElementById('preview-total').innerText = formatCurrency(total);
+    }
+}
+
+function handleLoanRequest() {
+    const amount = parseFloat(document.getElementById('loan-amount').value);
+    const duration = document.getElementById('loan-duration').value;
+    
+    if(!amount || amount <= 0) return showToast('Invalid loan amount', 'error');
+
+    apiCall('/loans/request', {
+        method: 'POST',
+        body: JSON.stringify({ amount, duration, reason: 'Personal' })
+    }).then(data => {
+        showToast('Loan application submitted for review!', 'success');
+        fetchInitialData(); // Refresh UI
+    });
+}
+
+        // Function to show the crypto address modal
+        function showCryptoAddressModal(type) {
+            const symbol = document.getElementById('deposit-asset').value;
+            const address = `QB${symbol}X${Math.random().toString(36).substring(2, 15).toUpperCase()}2025`; // Mock address
+
+            const content = `
+                <div class="space-y-4">
+                    <p class="text-brand-200">Please send your ${symbol} to the address below. **Only send ${symbol} to this address.** Sending other assets may result in permanent loss.</p>
+                    <div class="bg-dark-bg p-4 rounded-xl border border-brand-500 border-dashed break-all font-mono text-sm text-yellow-400">
+                        ${address}
+                    </div>
+                    <p class="text-xs text-red-400">Note: A network confirmation is required. Funds will appear in your wallet shortly after.</p>
+                    <button onclick="toggleModal(false)" class="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl">Done</button>
+                </div>
+            `;
+            toggleModal(true, content, `Deposit ${symbol} Address`);
+        }
+        
+        // Function to handle crypto withdrawal
+        function handleCryptoWithdraw() {
+            const symbol = document.getElementById('withdraw-asset').value;
+            const address = document.getElementById('withdraw-address').value;
+            const amount = parseFloat(document.getElementById('withdraw-amount').value);
+
+            if (isNaN(amount) || amount <= 0 || !address) {
+                return showToast("Invalid amount or address.", 'error');
+            }
+            if (amount > (Store.accounts.crypto[symbol] || 0)) {
+                return showToast(`Insufficient ${symbol} balance.`, 'error');
+            }
+
+            // Endpoint: POST /api/crypto/withdraw (New endpoint needed)
+            apiCall('/crypto/withdraw', {
+                method: 'POST',
+                body: JSON.stringify({ 
+                    symbol, 
+                    amount, 
+                    address
+                })
+            }).then(data => {
+                if (data) {
+                    showToast(`Withdrawal of ${formatCrypto(amount, symbol)} to external address confirmed!`, 'success');
+                    fetchInitialData(); 
+                    toggleModal(false);
+                }
+            });
+        }
+        
+ function renderCards() {
+    const cards = Store.user.cards || [];
+    
+    // Card Renderer Helper
+    const renderCardVisual = (card) => {
+        const skins = {
+            'black': 'bg-gradient-to-br from-gray-900 via-black to-gray-800 border-gray-700',
+            'gold': 'bg-gradient-to-br from-yellow-600 via-yellow-500 to-yellow-200 border-yellow-400 text-black',
+            'neon': 'bg-gradient-to-br from-brand-700 to-brand-900 border-brand-500',
+            'metal': 'bg-gradient-to-br from-slate-400 to-slate-200 text-slate-900 border-white'
+        };
+        const style = skins[card.skin] || skins['neon'];
+        const textColor = (card.skin === 'gold' || card.skin === 'metal') ? 'text-gray-900' : 'text-white';
+        const labelColor = (card.skin === 'gold' || card.skin === 'metal') ? 'text-gray-700' : 'text-brand-200';
+        
+        // Visual indicator for status
+        const statusClass = card.status === 'Active' 
+            ? 'bg-green-500' 
+            : card.status === 'Pending' 
+                ? 'bg-yellow-500 animate-pulse' 
+                : 'bg-red-500';
+
+        return `
+            <div class="glass-card p-6 rounded-2xl relative overflow-hidden ${style} h-60 shadow-xl transition hover:scale-105 duration-300">
+                <i class="ph-nfc-fill text-6xl opacity-10 absolute top-4 right-4 rotate-12"></i>
+                <i class="ph-chip text-4xl ${card.skin === 'gold' ? 'text-black' : 'text-yellow-400'} mb-4"></i>
+                
+                <div class="${textColor} space-y-3 mt-8">
+                    <p class="text-2xl font-mono font-bold tracking-widest">${card.status === 'Active' ? card.number : '**** **** **** ****'}</p>
+                    <div class="flex justify-between items-end">
+                        <div>
+                            <p class="text-xs ${labelColor} uppercase">Card Holder</p>
+                            <p class="font-bold text-sm tracking-wider">${card.name || Store.user.name}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-xs ${labelColor} uppercase">Limit</p>
+                            <p class="font-bold text-sm">${formatCurrency(card.limit)}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="absolute bottom-4 left-6 flex items-center space-x-2">
+                    <div class="w-2 h-2 rounded-full ${statusClass}"></div>
+                    <span class="text-xs font-bold uppercase tracking-widest ${textColor}">${card.status}</span>
+                </div>
+                 <div class="absolute bottom-4 right-6 flex items-center space-x-2">
+                    <span class="text-xs font-bold uppercase tracking-widest ${labelColor}">${card.type}</span>
+                    <i class="ph-visa-logo text-3xl opacity-80"></i>
+                </div>
+            </div>
+        `;
+    };
+
+    return `
+        <div class="space-y-6 p-6">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-3xl font-bold text-white">My Cards</h2>
+                <button onclick="showAddCardModal()" class="flex items-center space-x-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition">
+                    <i class="ph-plus-circle text-lg"></i> <span>Get New Card</span>
+                </button>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                ${cards.map(c => renderCardVisual(c)).join('')}
+                
+                <button onclick="showAddCardModal()" class="h-60 rounded-2xl border-2 border-dashed border-dark-border flex flex-col items-center justify-center text-brand-300 hover:text-brand-400 hover:border-brand-500 hover:bg-dark-card/30 transition group">
+                    <i class="ph-plus text-4xl mb-2 group-hover:scale-110 transition"></i>
+                    <span class="font-medium">Apply for Card</span>
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+function showAddCardModal() {
+    const content = `
+        <form onsubmit="event.preventDefault(); handleAddCard();" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-brand-200 mb-2">Select Card Tier</label>
+                <div class="grid grid-cols-2 gap-3">
+                    <label class="cursor-pointer">
+                        <input type="radio" name="card_skin" value="neon" checked class="peer sr-only">
+                        <div class="p-3 rounded-xl border border-dark-border bg-dark-bg peer-checked:border-brand-500 peer-checked:bg-brand-900/20 text-center transition">
+                            <div class="w-full h-8 bg-brand-600 rounded mb-2"></div>
+                            <span class="text-sm font-bold text-white">Standard (Free)</span>
+                        </div>
+                    </label>
+                    <label class="cursor-pointer">
+                        <input type="radio" name="card_skin" value="black" class="peer sr-only">
+                        <div class="p-3 rounded-xl border border-dark-border bg-dark-bg peer-checked:border-white peer-checked:bg-gray-800 text-center transition">
+                            <div class="w-full h-8 bg-gray-900 rounded mb-2"></div>
+                            <span class="text-sm font-bold text-white">Black ($20)</span>
+                        </div>
+                    </label>
+                    <label class="cursor-pointer">
+                        <input type="radio" name="card_skin" value="gold" class="peer sr-only">
+                        <div class="p-3 rounded-xl border border-dark-border bg-dark-bg peer-checked:border-yellow-400 peer-checked:bg-yellow-900/20 text-center transition">
+                            <div class="w-full h-8 bg-yellow-400 rounded mb-2"></div>
+                            <span class="text-sm font-bold text-white">Gold ($50)</span>
+                        </div>
+                    </label>
+                     <label class="cursor-pointer">
+                        <input type="radio" name="card_skin" value="metal" class="peer sr-only">
+                        <div class="p-3 rounded-xl border border-dark-border bg-dark-bg peer-checked:border-slate-300 peer-checked:bg-slate-700 text-center transition">
+                            <div class="w-full h-8 bg-slate-300 rounded mb-2"></div>
+                            <span class="text-sm font-bold text-white">Metal ($100)</span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+            <div>
+                 <label class="block text-sm font-medium text-brand-200 mb-2">Card Type</label>
+                 <select id="card-type-select" class="w-full glass-input rounded-xl px-4 py-3 text-sm">
+                    <option value="Virtual">Virtual (Instant)</option>
+                    <option value="Physical">Physical (Ship to me)</option>
+                 </select>
+            </div>
+            <button type="submit" class="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl mt-4">Confirm & Order</button>
+        </form>
+    `;
+    toggleModal(true, content, 'Order New Card');
+}
+
+function handleAddCard() {
+    const skin = document.querySelector('input[name="card_skin"]:checked').value;
+    const type = document.getElementById('card-type-select').value;
+    const feeMap = { 'neon': 0, 'black': 20, 'gold': 50, 'metal': 100 };
+    
+    // Check funds mock
+    if(Store.accounts.fiat < feeMap[skin]) {
+        return showToast(`Insufficient funds for ${skin.toUpperCase()} card fee.`, 'error');
+    }
+
+    apiCall('/cards', {
+        method: 'POST',
+        body: JSON.stringify({ skin, type, limit: 5000, name: Store.user.name })
+    }).then(data => {
+        showToast('Card issued successfully!', 'success');
+        fetchInitialData();
+        toggleModal(false);
+    });
+}
+        // --- Render: Settings/Profile ---
+        function renderSettings() {
+            return `
+                <div class="space-y-6 p-6">
+                    <h2 class="text-3xl font-bold text-white mb-6">Account Settings</h2>
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="glass-card p-6 rounded-2xl">
+                            <h3 class="text-xl font-bold text-white mb-4 border-b border-dark-border pb-3">Personal Information</h3>
+                            <form onsubmit="event.preventDefault(); handleUpdateProfile();" class="space-y-4">
+                                <div class="space-y-1">
+                                    <label class="block text-sm font-medium text-brand-200">Full Name</label>
+                                    <input id="profile-name" type="text" value="${Store.user.name || ''}" required class="w-full glass-input rounded-xl px-4 py-3 text-sm">
+                                </div>
+                                <div class="space-y-1">
+                                    <label class="block text-sm font-medium text-brand-200">Email Address</label>
+                                    <input id="profile-email" type="email" value="${Store.user.email || ''}" required class="w-full glass-input rounded-xl px-4 py-3 text-sm" readonly>
+                                </div>
+                                <div class="space-y-1">
+                                    <label class="block text-sm font-medium text-brand-200">Phone (Optional)</label>
+                                    <input id="profile-phone" type="tel" placeholder="+1 (555) 123-4567" class="w-full glass-input rounded-xl px-4 py-3 text-sm">
+                                </div>
+                                <button type="submit" class="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl transition duration-300">
+                                    Update Profile
+                                </button>
+                            </form>
+                        </div>
+
+                        <div class="glass-card p-6 rounded-2xl">
+                            <h3 class="text-xl font-bold text-white mb-4 border-b border-dark-border pb-3">Security</h3>
+                            <div class="space-y-4">
+                                <button onclick="showPasswordChangeModal()" class="w-full text-left p-3 rounded-lg hover:bg-dark-border transition flex justify-between items-center text-white">
+                                    Change Password <i class="ph-key text-xl text-brand-400"></i>
+                                </button>
+                                <button class="w-full text-left p-3 rounded-lg hover:bg-dark-border transition flex justify-between items-center text-white">
+                                    Enable Two-Factor Authentication (2FA) <i class="ph-lock-key-open text-xl text-green-400"></i>
+                                </button>
+                                <button class="w-full text-left p-3 rounded-lg hover:bg-dark-border transition flex justify-between items-center text-white">
+                                    Review Login Sessions <i class="ph-desktop-tower text-xl text-brand-400"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Function to handle profile update
+        function handleUpdateProfile() {
+            const name = document.getElementById('profile-name').value;
+            const phone = document.getElementById('profile-phone').value;
+
+            // Endpoint: PUT /api/user/profile (New endpoint needed)
+            apiCall('/user/profile', {
+                method: 'PUT',
+                body: JSON.stringify({ name, phone })
+            }).then(data => {
+                if (data) {
+                    showToast("Profile updated successfully!", 'success');
+                    fetchInitialData();
+                }
+            });
+        }
+
+async function renderAdmin() {
+    if (!Store.isAdmin) return '<div class="p-10 text-center text-red-500 font-bold">ACCESS DENIED</div>';
+
+    // 1. Fetch ALL Admin Data
+    // Note: We are mocking endpoints here. You will build these in the backend later.
+    const [users, config, cards, loans, tickets] = await Promise.all([
+        apiCall('/users'),           // Existing
+        apiCall('/config'),          // Existing
+        apiCall('/admin/cards'),     // NEW: Get all users' cards
+        apiCall('/admin/loans'),     // NEW: Get all loan requests
+        apiCall('/admin/tickets')    // NEW: Get support tickets
+    ]);
+
+    Store.adminUsers = users || [];
+    Store.config = config || {};
+    Store.adminCards = cards || [];
+    Store.adminLoans = loans || [];
+    Store.adminTickets = tickets || [];
+
+    // Default tab state
+    window.adminTab = window.adminTab || 'users'; 
+
+    // Navigation Tabs UI
+    const renderAdminTabs = () => `
+        <div class="flex flex-wrap gap-2 bg-dark-card p-1.5 rounded-xl w-fit mb-6 border border-dark-border">
+            <button onclick="window.adminTab='users'; renderApp()" class="px-4 py-2 rounded-lg text-sm font-medium transition ${window.adminTab==='users'?'bg-brand-600 text-white shadow-lg':'text-brand-300 hover:text-white'}">Users</button>
+            <button onclick="window.adminTab='cards'; renderApp()" class="px-4 py-2 rounded-lg text-sm font-medium transition ${window.adminTab==='cards'?'bg-brand-600 text-white shadow-lg':'text-brand-300 hover:text-white'}">Cards</button>
+            <button onclick="window.adminTab='loans'; renderApp()" class="px-4 py-2 rounded-lg text-sm font-medium transition ${window.adminTab==='loans'?'bg-brand-600 text-white shadow-lg':'text-brand-300 hover:text-white'}">Loans</button>
+            <button onclick="window.adminTab='support'; renderApp()" class="px-4 py-2 rounded-lg text-sm font-medium transition ${window.adminTab==='support'?'bg-brand-600 text-white shadow-lg':'text-brand-300 hover:text-white'}">Support</button>
+            <button onclick="window.adminTab='config'; renderApp()" class="px-4 py-2 rounded-lg text-sm font-medium transition ${window.adminTab==='config'?'bg-brand-600 text-white shadow-lg':'text-brand-300 hover:text-white'}">Config</button>
+        </div>
+    `;
+
+    // Content Switcher
+    let content = '';
+    switch(window.adminTab) {
+        case 'users': content = renderAdminUsers(); break;
+        case 'cards': content = renderAdminCards(); break; // Defined below
+        case 'loans': content = renderAdminLoans(); break; // Defined below
+        case 'support': content = renderAdminSupport(); break; // Defined below
+        case 'config': content = renderAdminConfig(); break; // Defined below
+    }
+
+    return `
+        <div class="p-6 space-y-6">
+            <div class="flex justify-between items-center">
+                <h2 class="text-3xl font-bold text-white">Admin Console</h2>
+                <div class="flex space-x-6 text-right">
+                    <div>
+                        <p class="text-xs text-brand-300">Pending Loans</p>
+                        <p class="text-xl font-bold text-yellow-400">${Store.adminLoans.filter(l => l.status === 'Pending').length}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-brand-300">Open Tickets</p>
+                        <p class="text-xl font-bold text-blue-400">${Store.adminTickets.filter(t => t.status === 'Open').length}</p>
+                    </div>
+                </div>
+            </div>
+            ${renderAdminTabs()}
+            ${content}
+        </div>
+    `;
+}
+
+// Function for Admin Dashboard -> Users Tab -> Manage Button
+function showEditUserModal(userId) {
+    const user = Store.adminUsers.find(u => u.id === userId);
+    if (!user) return;
+
+    const content = `
+        <form onsubmit="event.preventDefault(); handleAdminSaveUser(${user.id});" class="space-y-4">
+            <div class="bg-dark-bg p-3 rounded-xl border border-dark-border mb-4">
+                <p class="text-xs text-brand-300 uppercase">Editing User</p>
+                <p class="font-bold text-white">${user.name}</p>
+                <p class="text-xs font-mono text-brand-400">${user.email}</p>
+            </div>
+            
+            <div class="space-y-1">
+                <label class="block text-sm font-medium text-brand-200">Fiat Balance (Override)</label>
+                <input id="edit-fiat-${user.id}" type="number" step="0.01" value="${user.fiat_balance}" class="w-full glass-input rounded-xl px-4 py-3 font-mono text-green-400 font-bold">
+            </div>
+
+            <div class="space-y-1">
+                <label class="block text-sm font-medium text-brand-200">Role</label>
+                <select id="edit-role-${user.id}" class="w-full glass-input rounded-xl px-4 py-3">
+                    <option value="user" ${user.role === 'user' ? 'selected' : ''}>User</option>
+                    <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
+                </select>
+            </div>
+
+            <div class="pt-4 border-t border-dark-border flex space-x-3">
+                <button type="button" class="flex-1 py-3 bg-dark-bg border border-red-900 text-red-500 hover:bg-red-900/20 font-bold rounded-xl">Ban User</button>
+                <button type="submit" class="flex-1 py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl">Save Changes</button>
+            </div>
+        </form>
+    `;
+    toggleModal(true, content, 'Manage User Account');
+}
+
+
+
+// Function for Admin Dashboard -> Loans Tab -> Review Button
+function showAdminLoanModal(loanId) {
+    const loan = Store.adminLoans.find(l => l.id === loanId);
+    if (!loan) return;
+
+    const content = `
+        <div class="space-y-4">
+            <div class="grid grid-cols-2 gap-4 bg-dark-bg p-4 rounded-xl border border-dark-border">
+                <div>
+                    <p class="text-xs text-brand-300">Amount</p>
+                    <p class="font-bold text-white font-mono">${formatCurrency(loan.amount)}</p>
+                </div>
+                <div>
+                    <p class="text-xs text-brand-300">Duration</p>
+                    <p class="font-bold text-white">${loan.duration} Months</p>
+                </div>
+                <div class="col-span-2">
+                    <p class="text-xs text-brand-300">User Reason</p>
+                    <p class="text-sm text-white italic">"${loan.reason || 'No reason provided'}"</p>
+                </div>
+            </div>
+
+            <form onsubmit="event.preventDefault(); handleAdminLoanDecision('${loan.id}', 'approve');" class="space-y-4">
+                <div class="space-y-1">
+                    <label class="block text-sm font-medium text-brand-200">Adjust Interest Rate (%)</label>
+                    <input id="admin-loan-rate" type="number" step="0.1" value="${loan.interest_rate}" class="w-full glass-input rounded-xl px-4 py-3 font-mono text-yellow-400 font-bold">
+                    <p class="text-xs text-brand-300">You can adjust the rate before approving.</p>
+                </div>
+
+                <div class="flex space-x-3 pt-2">
+                    <button type="button" onclick="handleAdminLoanDecision('${loan.id}', 'reject')" class="flex-1 py-3 bg-red-900/50 text-red-400 hover:bg-red-900 border border-red-800 font-bold rounded-xl transition">Reject</button>
+                    <button type="submit" class="flex-1 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl transition">Approve Loan</button>
+                </div>
+            </form>
+        </div>
+    `;
+    toggleModal(true, content, 'Review Loan Application');
+}
+
+function handleAdminLoanDecision(loanId, decision) {
+    let body = {};
+    if (decision === 'approve') {
+        const rate = document.getElementById('admin-loan-rate').value;
+        body = { interest_rate: parseFloat(rate) };
+    }
+
+    apiCall(`/admin/loans/${loanId}/${decision}`, {
+        method: 'POST',
+        body: JSON.stringify(body)
+    }).then(() => {
+        showToast(`Loan application ${decision}ed`, decision === 'approve' ? 'success' : 'info');
+        toggleModal(false);
+        renderApp();
+    });
+}
+
+// Function for Admin Dashboard -> Cards Tab -> Edit / Limit Button
+function showAdminCardModal(cardId) {
+    const card = Store.adminCards.find(c => c.id === cardId);
+    if (!card) return;
+
+    const content = `
+        <form onsubmit="event.preventDefault(); handleAdminCardEdit('${card.id}');" class="space-y-4">
+            <div class="bg-dark-bg p-3 rounded-xl border border-dark-border mb-2">
+                <p class="text-xs text-brand-300">Card Number</p>
+                <p class="font-mono text-white">${card.number}</p>
+            </div>
+            
+            <div class="space-y-1">
+                <label class="block text-sm font-medium text-brand-200">Spending Limit (USD)</label>
+                <input id="admin-card-limit" type="number" value="${card.limit}" class="w-full glass-input rounded-xl px-4 py-3 font-mono">
+            </div>
+
+            <div class="space-y-1">
+                <label class="block text-sm font-medium text-brand-200">Status</label>
+                <select id="admin-card-status" class="w-full glass-input rounded-xl px-4 py-3">
+                    <option value="Active" ${card.status === 'Active' ? 'selected' : ''}>Active</option>
+                    <option value="Frozen" ${card.status === 'Frozen' ? 'selected' : ''}>Frozen</option>
+                    <option value="Cancelled" ${card.status === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
+                </select>
+            </div>
+
+            <button type="submit" class="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl mt-2">Update Card</button>
+        </form>
+    `;
+    toggleModal(true, content, `Manage Card (${card.skin.toUpperCase()})`);
+}
+
+function handleAdminCardEdit(cardId) {
+    const limit = parseFloat(document.getElementById('admin-card-limit').value);
+    const status = document.getElementById('admin-card-status').value;
+
+    apiCall(`/admin/cards/${cardId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ limit, status })
+    }).then(() => {
+        showToast('Card updated successfully', 'success');
+        toggleModal(false);
+        renderApp(); 
+    });
+}
+
+function handleAdminCardAction(cardId, action) {
+    // action = 'approve' or 'reject'
+    apiCall(`/admin/cards/${cardId}/${action}`, { method: 'POST' })
+        .then(() => {
+            showToast(`Card request ${action}d`, 'success');
+            renderApp();
+        });
+}
+
+function handleAdminSaveUser(id) {
+    const newBalance = parseFloat(document.getElementById(`edit-fiat-${id}`).value);
+    const newRole = document.getElementById(`edit-role-${id}`).value;
+
+    apiCall(`/admin/users/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ fiatBalance: newBalance, role: newRole })
+    }).then(data => {
+        showToast('User data updated successfully', 'success');
+        toggleModal(false);
+        // Assuming renderApp() will re-fetch and re-render the admin view
+        renderApp(); 
+    });
+}
+// --- 1. Users View (Existing Logic) ---
+const renderAdminUsers = () => `
+    <div class="glass-card p-6 rounded-2xl overflow-x-auto">
+         <table class="min-w-full divide-y divide-dark-border">
+            <thead class="text-xs text-brand-400 uppercase tracking-wider bg-dark-bg/50">
+                <tr>
+                    <th class="px-6 py-3 text-left">ID</th>
+                    <th class="px-6 py-3 text-left">User</th>
+                    <th class="px-6 py-3 text-left">Balance</th>
+                    <th class="px-6 py-3 text-left">Status</th>
+                    <th class="px-6 py-3 text-left">Action</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-dark-border">
+                ${Store.adminUsers.map(u => `
+                    <tr class="hover:bg-dark-border/50 transition">
+                        <td class="px-6 py-4 font-mono text-xs text-brand-500">#${u.id}</td>
+                        <td class="px-6 py-4">
+                            <p class="font-bold text-white text-sm">${u.name}</p>
+                            <p class="text-xs text-brand-300">${u.email}</p>
+                        </td>
+                        <td class="px-6 py-4 font-mono text-green-400">${formatCurrency(u.fiat_balance)}</td>
+                        <td class="px-6 py-4"><span class="px-2 py-1 rounded text-xs bg-brand-900 text-brand-200">${u.status || 'Active'}</span></td>
+                        <td class="px-6 py-4">
+                            <button onclick="showEditUserModal(${u.id})" class="text-brand-400 hover:text-white text-xs border border-brand-500/30 px-3 py-1 rounded hover:bg-brand-600 transition">Manage</button>
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    </div>
+`;
+
+// --- 2. Cards Management View (NEW) ---
+const renderAdminCards = () => `
+    <div class="glass-card p-6 rounded-2xl overflow-x-auto">
+        <h3 class="text-xl font-bold text-white mb-4">Card Issuance & Management</h3>
+        <table class="min-w-full divide-y divide-dark-border">
+            <thead class="text-xs text-brand-400 uppercase tracking-wider bg-dark-bg/50">
+                <tr>
+                    <th class="px-6 py-3 text-left">Cardholder</th>
+                    <th class="px-6 py-3 text-left">Type/Tier</th>
+                    <th class="px-6 py-3 text-left">Number</th>
+                    <th class="px-6 py-3 text-left">Limit</th>
+                    <th class="px-6 py-3 text-left">Status</th>
+                    <th class="px-6 py-3 text-left">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-dark-border">
+                ${Store.adminCards.length === 0 ? '<tr><td colspan="6" class="p-4 text-center text-brand-300">No cards found.</td></tr>' : Store.adminCards.map(c => `
+                    <tr class="hover:bg-dark-border/50 transition">
+                        <td class="px-6 py-4 font-medium text-white">${c.userName || 'Unknown'}</td>
+                        <td class="px-6 py-4">
+                            <span class="text-xs font-bold px-2 py-0.5 rounded border ${c.skin === 'black' ? 'border-gray-500 bg-gray-900 text-gray-300' : c.skin === 'gold' ? 'border-yellow-600 bg-yellow-900/30 text-yellow-500' : 'border-brand-500 bg-brand-900/30 text-brand-300'}">${c.skin.toUpperCase()}</span>
+                            <span class="text-xs text-brand-400 ml-1">${c.type}</span>
+                        </td>
+                        <td class="px-6 py-4 font-mono text-sm text-brand-200">${c.number}</td>
+                        <td class="px-6 py-4 font-mono text-white">${formatCurrency(c.limit)}</td>
+                        <td class="px-6 py-4">
+                            <span class="px-2 py-1 rounded text-xs font-bold ${c.status === 'Active' ? 'bg-green-900/50 text-green-400' : c.status === 'Frozen' ? 'bg-red-900/50 text-red-400' : 'bg-yellow-900/50 text-yellow-400'}">
+                                ${c.status || 'Active'}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 flex space-x-2">
+                            ${c.status === 'Pending' 
+                                ? `<button onclick="handleAdminCardAction('${c.id}', 'approve')" class="text-green-400 hover:text-green-300"><i class="ph-check-circle text-xl"></i></button>
+                                   <button onclick="handleAdminCardAction('${c.id}', 'reject')" class="text-red-400 hover:text-red-300"><i class="ph-x-circle text-xl"></i></button>`
+                                : `<button onclick="showAdminCardModal('${c.id}')" class="text-brand-400 hover:text-white text-xs border border-brand-500/30 px-3 py-1 rounded hover:bg-brand-600 transition">Edit / Limit</button>`
+                            }
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    </div>
+`;
+
+// --- 3. Loans Management View (NEW) ---
+const renderAdminLoans = () => `
+    <div class="glass-card p-6 rounded-2xl overflow-x-auto">
+        <h3 class="text-xl font-bold text-white mb-4">Loan Requests & Active Credits</h3>
+        <table class="min-w-full divide-y divide-dark-border">
+            <thead class="text-xs text-brand-400 uppercase tracking-wider bg-dark-bg/50">
+                <tr>
+                    <th class="px-6 py-3 text-left">User</th>
+                    <th class="px-6 py-3 text-left">Amount</th>
+                    <th class="px-6 py-3 text-left">Term</th>
+                    <th class="px-6 py-3 text-left">Interest Rate</th>
+                    <th class="px-6 py-3 text-left">Status</th>
+                    <th class="px-6 py-3 text-left">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-dark-border">
+                ${Store.adminLoans.length === 0 ? '<tr><td colspan="6" class="p-4 text-center text-brand-300">No loan requests.</td></tr>' : Store.adminLoans.map(l => `
+                    <tr class="hover:bg-dark-border/50 transition">
+                        <td class="px-6 py-4 font-medium text-white">${l.userName}</td>
+                        <td class="px-6 py-4 font-mono text-green-400 font-bold">${formatCurrency(l.amount)}</td>
+                        <td class="px-6 py-4 text-sm text-brand-300">${l.duration} Months</td>
+                        <td class="px-6 py-4 font-mono text-yellow-400">${l.interest_rate}%</td>
+                        <td class="px-6 py-4">
+                            <span class="px-2 py-1 rounded text-xs font-bold ${l.status === 'Active' ? 'bg-green-900/50 text-green-400' : l.status === 'Pending' ? 'bg-yellow-900/50 text-yellow-400' : 'bg-red-900/50 text-red-400'}">
+                                ${l.status}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4">
+                            ${l.status === 'Pending' 
+                                ? `<button onclick="showAdminLoanModal('${l.id}')" class="bg-brand-600 hover:bg-brand-500 text-white text-xs px-3 py-1.5 rounded font-bold transition">Review</button>`
+                                : `<span class="text-xs text-brand-500 italic">No actions</span>`
+                            }
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    </div>
+`;
+
+// --- 4. Support Tickets View (NEW) ---
+const renderAdminSupport = () => `
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="lg:col-span-3 glass-card p-6 rounded-2xl">
+            <h3 class="text-xl font-bold text-white mb-4">Support Inbox</h3>
+            <div class="space-y-3">
+                ${Store.adminTickets.length === 0 ? '<p class="text-brand-300 italic">No open tickets.</p>' : Store.adminTickets.map(t => `
+                    <div class="p-4 bg-dark-bg/50 border border-dark-border rounded-xl hover:border-brand-500/50 transition cursor-pointer flex justify-between items-center" onclick="showAdminTicketModal('${t.id}')">
+                        <div class="flex items-center space-x-4">
+                            <div class="w-10 h-10 rounded-full bg-brand-900 flex items-center justify-center text-brand-300 font-bold">
+                                ${t.userName ? t.userName.charAt(0) : '?'}
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-white text-sm">${t.subject}</h4>
+                                <p class="text-xs text-brand-300">From: ${t.userName} • ${moment(t.date).fromNow()}</p>
+                                <p class="text-xs text-brand-200 mt-1 truncate max-w-md">${t.message}</p>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                             <span class="px-2 py-1 rounded text-xs font-bold ${t.status === 'Open' ? 'bg-blue-900/50 text-blue-400' : 'bg-green-900/50 text-green-400'}">${t.status}</span>
+                             <i class="ph-caret-right text-brand-500 ml-3"></i>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    </div>
+`;
+
+// --- 5. Config View (Existing Logic) ---
+const renderAdminConfig = () => `
+    <div class="glass-card p-6 rounded-2xl border-l-4 border-brand-500 max-w-2xl">
+        <h3 class="text-xl font-bold text-white mb-4">System Configuration</h3>
+            <form onsubmit="event.preventDefault(); handleUpdateConfig();" class="space-y-4">
+            <div class="space-y-1">
+                <label class="block text-sm font-medium text-brand-200">Total System Liquidity</label>
+                <input id="config-liquidity" type="number" value="${Store.config.totalLiquidity}" class="w-full glass-input rounded-xl px-4 py-3 font-mono">
+            </div>
+            <div class="space-y-1">
+                <label class="block text-sm font-medium text-brand-200">Base Loan Interest Rate (%)</label>
+                <input id="config-rate" type="number" step="0.1" value="${Store.config.baseInterestRate}" class="w-full glass-input rounded-xl px-4 py-3 font-mono">
+            </div>
+                <button type="submit" class="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl">Save Changes</button>
+            </form>
+    </div>
+`;
+
+
+function renderLandingPage() {
+    const appContainer = document.getElementById('app-container');
+    appContainer.innerHTML = `
+        <div class="min-h-screen bg-dark-bg text-white font-sans selection:bg-brand-500 selection:text-white">
+            <nav class="fixed w-full z-50 top-0 bg-dark-bg/80 backdrop-blur-md border-b border-dark-border">
+                <div class="max-w-7xl mx-auto px-6 h-20 flex justify-between items-center">
+                    <div class="flex items-center space-x-2">
+                        <i class="ph-bank ph-2xl text-brand-500"></i>
+                        <span class="text-2xl font-extrabold tracking-tight">Quantum<span class="text-brand-400">Bank</span></span>
+                    </div>
+                    <div class="hidden md:flex space-x-8 text-sm font-medium text-brand-200">
+                        <a href="#banking" class="hover:text-white transition">Banking</a>
+                        <a href="#crypto" class="hover:text-white transition">Crypto Wallet</a>
+                        <a href="#security" class="hover:text-white transition">Security</a>
+                        <a href="#admin" class="hover:text-white transition">System Control</a>
+                    </div>
+                    <div class="flex space-x-4">
+                        <button onclick="renderAuthPage(true)" class="text-white font-medium hover:text-brand-300 transition">Log In</button>
+                        <button onclick="renderAuthPage(false)" class="px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl transition shadow-lg shadow-brand-500/25">Get Started</button>
+                    </div>
+                </div>
+            </nav>
+
+            <section class="pt-40 pb-28 px-6 relative overflow-hidden">
+                <div class="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[800px] bg-brand-600/10 rounded-full blur-[150px] -z-10"></div>
+                <div class="max-w-7xl mx-auto text-center">
+                    <span class="text-sm font-semibold uppercase text-brand-400 tracking-wider inline-block mb-4">The Future of Finance</span>
+                    <h1 class="text-5xl md:text-7xl font-extrabold tracking-tight mb-8 bg-clip-text text-transparent bg-gradient-to-b from-white to-brand-300">
+                        Unified Banking for the <br/> <span class="text-brand-500">Digital Generation</span>
+                    </h1>
+                    <p class="text-xl text-brand-300 max-w-3xl mx-auto mb-12 leading-relaxed">
+                        Manage fiat, trade crypto, apply for instant loans, and control physical cards—all from one powerful, intelligent dashboard.
+                    </p>
+                    <div class="flex flex-col md:flex-row justify-center items-center space-y-4 md:space-y-0 md:space-x-6">
+                        <button onclick="renderAuthPage(false)" class="px-8 py-4 bg-white text-dark-bg font-bold rounded-xl text-lg hover:bg-brand-50 transition transform hover:scale-105 shadow-xl">Open Free Account</button>
+                        <button onclick="window.location.hash='#dashboard'" class="px-8 py-4 glass-card text-white font-bold rounded-xl text-lg hover:bg-dark-card transition flex items-center">
+                            <i class="ph-monitor text-xl mr-2"></i> View Demo Dashboard
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <hr class="border-dark-border/50 max-w-7xl mx-auto"/>
+
+            <section id="banking" class="py-20 px-6">
+                <div class="max-w-7xl mx-auto">
+                    <h2 class="text-4xl font-bold text-center mb-4">Seamless Fiat & Card Management 💳</h2>
+                    <p class="text-xl text-brand-300 text-center max-w-2xl mx-auto mb-16">See the power of our integrated card system and instant transfer services.</p>
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        <div class="lg:col-span-2 glass-card p-8 rounded-3xl relative overflow-hidden shadow-2xl bg-dark-card/50">
+                            <div class="flex justify-between items-start mb-6">
+                                <h3 class="text-2xl font-extrabold">Your QuantumCard Portfolio</h3>
+                                <span class="text-sm font-semibold text-green-400">Total Limit: $15,000</span>
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                <div class="p-5 rounded-xl bg-gradient-to-br from-gray-900 via-black to-gray-800 border border-gray-700 h-48 flex flex-col justify-between">
+                                    <span class="text-xs text-brand-300 uppercase">Black Metal (Active)</span>
+                                    <p class="text-xl font-mono text-white tracking-widest">**** 9012</p>
+                                    <div class="flex justify-between items-center text-sm">
+                                        <span class="text-brand-300">Limit: <span class="text-white font-bold">$10,000</span></span>
+                                        <i class="ph-lock-open text-green-400 text-2xl" title="Freeze Card"></i>
+                                    </div>
+                                </div>
+                                <div class="p-5 rounded-xl bg-gradient-to-br from-yellow-700 to-yellow-500/50 border border-yellow-600/50 h-48 flex flex-col justify-between animate-pulse">
+                                    <span class="text-xs text-yellow-100 uppercase">Gold Physical (Pending)</span>
+                                    <p class="text-xl font-mono text-white tracking-widest">**** ****</p>
+                                    <div class="flex justify-between items-center text-sm">
+                                        <span class="text-yellow-100">Status: <span class="text-white font-bold">Awaiting Admin Approval</span></span>
+                                        <i class="ph-hourglass text-yellow-400 text-2xl"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="glass-card p-8 rounded-3xl relative overflow-hidden bg-brand-900/50 border-brand-700/50">
+                            <div class="w-16 h-16 bg-brand-600/50 rounded-full flex items-center justify-center mb-4"><i class="ph-hand-coins text-3xl text-brand-300"></i></div>
+                            <h3 class="text-2xl font-bold mb-4">Loan & Rewards Status</h3>
+                            <p class="text-sm text-brand-200 mb-6">Your **Gold Tier** status and **1,250 Transaction Points** unlock the best rates.</p>
+                            
+                            <div class="space-y-3">
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-brand-300">Pending Loan Request:</span>
+                                    <span class="text-yellow-400 font-bold">$5,000.00</span>
+                                </div>
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-brand-300">Approved Interest Rate:</span>
+                                    <span class="text-green-400 font-bold">3.5% APR</span>
+                                </div>
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-brand-300">Next Point Tier (Platinum):</span>
+                                    <span class="text-white font-bold">5,000 Points</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <hr class="border-dark-border/50 max-w-7xl mx-auto"/>
+
+            <section id="crypto" class="py-20 px-6">
+                <div class="max-w-7xl mx-auto">
+                    <h2 class="text-4xl font-bold text-center mb-4">Integrated Crypto Exchange ₿</h2>
+                    <p class="text-xl text-brand-300 text-center max-w-2xl mx-auto mb-16">Seamlessly trade, hold, and manage your portfolio without leaving the banking environment.</p>
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        <div class="lg:col-span-2 glass-card p-8 rounded-3xl bg-dark-card/50">
+                            <div class="flex justify-between items-center mb-6">
+                                <h3 class="text-2xl font-bold">Live Market Data</h3>
+                                <span class="text-sm text-brand-300">Powered by real-time feeds</span>
+                            </div>
+                            <table class="min-w-full divide-y divide-dark-border">
+                                <thead class="text-xs text-brand-400 uppercase tracking-wider">
+                                    <tr>
+                                        <th class="py-3 text-left">Asset</th>
+                                        <th class="py-3 text-right">Price (USD)</th>
+                                        <th class="py-3 text-right">24h Change</th>
+                                        <th class="py-3 text-right">Your Holdings</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-dark-border">
+                                    <tr>
+                                        <td class="py-4 font-bold text-white flex items-center"><i class="ph-currency-btc text-xl text-yellow-500 mr-2"></i> Bitcoin (BTC)</td>
+                                        <td class="py-4 text-right font-mono">$68,500.00</td>
+                                        <td class="py-4 text-right text-green-500 font-mono">+3.2%</td>
+                                        <td class="py-4 text-right font-mono text-brand-400">0.5 BTC</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="py-4 font-bold text-white flex items-center"><i class="ph-currency-eth text-xl text-slate-400 mr-2"></i> Ethereum (ETH)</td>
+                                        <td class="py-4 text-right font-mono">$3,600.00</td>
+                                        <td class="py-4 text-right text-red-500 font-mono">-1.5%</td>
+                                        <td class="py-4 text-right font-mono text-brand-400">10.0 ETH</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="py-4 font-bold text-white flex items-center"><i class="ph-currency-circle-fill text-xl text-purple-500 mr-2"></i> Solana (SOL)</td>
+                                        <td class="py-4 text-right font-mono">$152.00</td>
+                                        <td class="py-4 text-right text-green-500 font-mono">+5.8%</td>
+                                        <td class="py-4 text-right font-mono text-brand-400">100.0 SOL</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <div class="glass-card p-8 rounded-3xl relative bg-dark-card/50">
+                            <div class="w-16 h-16 bg-yellow-600/50 rounded-full flex items-center justify-center mb-4"><i class="ph-lightning text-3xl text-yellow-400"></i></div>
+                            <h3 class="text-2xl font-bold mb-4">Trade & Withdraw</h3>
+                            <p class="text-brand-300 mb-6">Execute market trades, transfer to fiat, or securely withdraw crypto to an external wallet.</p>
+                            
+                            <button class="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl mb-3">Buy BTC Instantly</button>
+                            <button class="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl mb-3">Sell ETH</button>
+                            <button class="w-full py-3 bg-dark-bg border border-brand-500/50 text-brand-300 hover:bg-brand-900/20 font-bold rounded-xl">Withdraw Crypto</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <hr class="border-dark-border/50 max-w-7xl mx-auto"/>
+
+            <section id="security" class="py-20 px-6">
+                <div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+                    
+                    <div>
+                        <span class="text-sm font-semibold uppercase text-brand-400 tracking-wider mb-2 block">Enterprise-Grade Security</span>
+                        <h2 class="text-4xl font-bold mb-4">Built on Trust and Control 🔒</h2>
+                        <p class="text-brand-300 mb-8">Your assets are protected by advanced systems, and the platform administrator has full, audited control over every aspect of the network.</p>
+                        
+                        <div class="space-y-4">
+                            <div class="flex items-start">
+                                <i class="ph-shield-check text-2xl text-green-500 mr-4 mt-1"></i>
+                                <div>
+                                    <h4 class="font-bold text-white">Full Admin Oversight</h4>
+                                    <p class="text-sm text-brand-300">Administrators can review and approve/reject every loan and physical card application.</p>
+                                </div>
+                            </div>
+                            <div class="flex items-start">
+                                <i class="ph-lock-key text-2xl text-blue-500 mr-4 mt-1"></i>
+                                <div>
+                                    <h4 class="font-bold text-white">Secure Funds Control</h4>
+                                    <p class="text-sm text-brand-300">Admin tools allow granular fiat balance adjustment and system liquidity settings.</p>
+                                </div>
+                            </div>
+                             <div class="flex items-start">
+                                <i class="ph-user-gear text-2xl text-yellow-500 mr-4 mt-1"></i>
+                                <div>
+                                    <h4 class="font-bold text-white">Tiered Access & Roles</h4>
+                                    <p class="text-sm text-brand-300">Clearly defined 'user' and 'admin' roles with restricted access to sensitive functions.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="admin" class="glass-card p-6 rounded-3xl relative overflow-hidden bg-dark-card/50">
+                        <span class="absolute top-0 right-0 px-4 py-1 bg-red-600/50 text-white text-xs font-bold rounded-tr-3xl">ADMIN VIEW</span>
+                        <h3 class="text-2xl font-bold mb-4 mt-4">Admin Dashboard Snapshot</h3>
+                        
+                        <div class="space-y-4">
+                            <div class="p-3 bg-dark-bg rounded-xl border border-dark-border">
+                                <p class="text-sm text-brand-300">Pending Loan Applications</p>
+                                <div class="flex justify-between items-center">
+                                    <span class="text-2xl font-bold text-yellow-400">3 Requests</span>
+                                    <i class="ph-hand-coins text-3xl text-yellow-400/50"></i>
+                                </div>
+                            </div>
+                             <div class="p-3 bg-dark-bg rounded-xl border border-dark-border">
+                                <p class="text-sm text-brand-300">Open Support Tickets</p>
+                                <div class="flex justify-between items-center">
+                                    <span class="text-2xl font-bold text-blue-400">8 Tickets</span>
+                                    <i class="ph-ticket text-3xl text-blue-400/50"></i>
+                                </div>
+                            </div>
+                            <div class="p-3 bg-dark-bg rounded-xl border border-dark-border">
+                                <p class="text-sm text-brand-300">System Liquidity</p>
+                                <div class="flex justify-between items-center">
+                                    <span class="text-xl font-bold text-green-400">$250M</span>
+                                    <i class="ph-chart-line text-3xl text-green-400/50"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <hr class="border-dark-border/50 max-w-7xl mx-auto"/>
+
+            <footer class="py-10 text-center text-brand-400 text-sm">
+                <div class="max-w-7xl mx-auto px-6">
+                    <p class="mb-2">&copy; ${new Date().getFullYear()} QuantumBank AI. All rights reserved.</p>
+                    <p class="text-xs">Disclaimer: This is a demo application for a fintech and crypto exchange system.</p>
+                </div>
+            </footer>
+        </div>
+    `;
+}
+        // Function to handle config update
+        function handleUpdateConfig() {
+            const baseInterestRate = parseFloat(document.getElementById('config-rate').value);
+            const cryptoFeeBase = parseFloat(document.getElementById('config-crypto-fee').value);
+            const totalLiquidity = parseFloat(document.getElementById('config-liquidity').value);
+
+            // Endpoint: PUT /api/config
+            apiCall('/config', {
+                method: 'PUT',
+                body: JSON.stringify({ baseInterestRate, cryptoFeeBase, totalLiquidity })
+            }).then(data => {
+                if (data) {
+                    showToast("System configuration updated!", 'success');
+                    fetchInitialData();
+                    toggleModal(false);
+                }
+            });
+        }
+        
+        // --- Main App Logic (Router & Initialization) ---
+
+        /** Renders the current view into the main content area */
+        async function renderView(viewKey) {
+            Store.activeView = viewKey;
+            const mainContent = document.getElementById('main-content');
+            
+            // 1. Update Layout (Sidebar/Header)
+            const appContainer = document.getElementById('app-container');
+            appContainer.innerHTML = `
+                ${renderSidebar()}
+                <main class="flex-1 overflow-y-auto">
+                    ${renderHeader()}
+                    <div id="main-content" class="min-h-[calc(100vh-80px)]">
+                        </div>
+                </main>
+            `;
+            
+            // 2. Get main-content reference again
+            const newMainContent = document.getElementById('main-content');
+            newMainContent.innerHTML = '<div class="p-6 text-center text-brand-300"><i class="ph-spinner-gap ph-2xl animate-spin"></i> Loading...</div>';
+
+            // 3. Render specific view
+            let content = '';
+            switch (viewKey) {
+                case 'dashboard':
+                    content = renderDashboard();
+                    break;
+                case 'banking':
+                    content = renderBanking();
+                    break;
+                case 'crypto':
+                    content = renderCrypto();
+                    break;
+                case 'wallet':
+                    content = renderWallet();
+                    break;
+                case 'cards':
+                    content = renderCards();
+                    break;
+                case 'settings':
+                    content = renderSettings();
+                    break;
+                case 'admin':
+                    content = await renderAdmin(); // Admin view is async
+                    break;
+                case 'loans':
+                    content = renderLoans();
+                    break;
+                default:
+                    content = renderDashboard(); // Fallback
+                    Store.activeView = 'dashboard';
+            }
+            newMainContent.innerHTML = content;
+
+            // 4. Post-render logic (e.g., charts)
+            if (viewKey === 'dashboard') {
+                // Mock chart data setup
+                const ctx = document.getElementById('portfolioChart')?.getContext('2d');
+                if (ctx) {
+                    const mockData = {
+                        labels: ['Dec 1', 'Dec 2', 'Dec 3', 'Dec 4', 'Dec 5', 'Dec 6', 'Dec 7'],
+                        datasets: [{
+                            label: 'Portfolio Value (USD)',
+                            data: [15000, 15500, 14900, 16000, 16200, 17000, Store.accounts.fiat + (Object.keys(Store.accounts.crypto).length > 0 ? 1000 : 0) + 10000],
+                            borderColor: '#8b5cf6', // brand-500
+                            backgroundColor: 'rgba(139, 92, 246, 0.2)',
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 3
+                        }]
+                    };
+
+                    new Chart(ctx, {
+                        type: 'line',
+                        data: mockData,
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: {
+                                    mode: 'index',
+                                    intersect: false,
+                                    callbacks: {
+                                        label: (context) => formatCurrency(context.parsed.y)
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    grid: { color: 'rgba(40, 40, 70, 0.5)' },
+                                    ticks: { color: '#c4b5fd' }
+                                },
+                                y: {
+                                    grid: { color: 'rgba(40, 40, 70, 0.5)' },
+                                    ticks: { 
+                                        color: '#c4b5fd',
+                                        callback: (value) => formatCurrency(value, '') // Remove USD symbol from Y-axis
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+        }
+
+        function router() {
+            const hash = window.location.hash.substring(1);
+            
+            // 1. If not authenticated and no hash (or just entered site), show Landing Page
+            if (!Store.isAuthenticated) {
+                if (!hash || hash === 'landing') {
+                    renderLandingPage();
+                    return;
+                } else {
+                    // If they try to go to #dashboard without auth, show login modal
+                    renderLandingPage();
+                    return;
+                }
+            }
+
+            // 2. If Authenticated
+            let view = hash.split('?')[0] || 'dashboard';
+
+            // Admin Protection
+            if (Views[view]?.adminOnly && !Store.isAdmin) {
+                showToast("Access Restricted", 'error');
+                view = 'dashboard'; 
+            }
+            
+            // Default fallback
+            if (!Views[view]) view = 'dashboard';
+
+            Store.activeView = view;
+            renderView(view);
+        }
+
+        function init() {
+            if (Store.authToken) {
+                Store.isAuthenticated = true;
+                fetchInitialData().then(() => {
+                    if(!window.location.hash) window.location.hash = '#dashboard';
+                    router(); 
+                });
+            } else {
+                Store.isAuthenticated = false;
+                // Check if there is a hash, if not render Landing
+                if(!window.location.hash) {
+                    renderLandingPage();
+                } else {
+                    router(); // Triggers renderAuthPage
+                }
+            }
+
+            window.addEventListener('hashchange', router);
+        }
+
+        
+        // Centralized render function called after auth/data fetch
+        function renderApp() {
+            const authModal = document.getElementById('auth-modal');
+            if (Store.isAuthenticated) {
+                authModal.classList.add('hidden');
+                router();
+            } else {
+                router();
+                //document.getElementById('app-container').innerHTML = ''; // Clear main app content
+            }
+        }
+
+        // Run initialization
+        init();
+
+    </script>
+
+
+    <!-- a good looking landing page with sign in and login buttons and other sections.  -->
+    
+
+</body>
+</html>
