@@ -6,8 +6,8 @@
 
 **QuantumBank Pro** is a cutting-edge, single-page application (SPA) template designed for next-generation fintech platforms, digital banks, and cryptocurrency exchanges. Built purely with HTML, Vanilla JS, and Tailwind CSS, it boasts a stunning dark-mode-first, glassmorphism interface.
 
-[👉 **View Live Demo Here**](crypto-bank-production-8f1f.up.railway.app) 
-
+[👉 **View Live Demo Here**][(crypto-bank-production-8f1f.up.railway.app) ](https://crypto-bank-production-8f1f.up.railway.app/)
+link:[crypto-bank-production-8f1f.up.railway.app](https://crypto-bank-production-8f1f.up.railway.app/)
 ## ✨ Key Features
 
 * **Deep Dark Glassmorphism UI:** A modern, frosted-glass aesthetic with custom deep blue/purple brand color palettes and smooth transitions.
